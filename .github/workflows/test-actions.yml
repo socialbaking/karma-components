@@ -1,0 +1,92 @@
+name: test-actions
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      NO_COVERAGE_BADGE_UPDATE: 1
+      PROMPT_NAME: test name
+      PROMPT_EMAIL: test+email@example.com
+      REDIS_URL: redis://default@localhost:6379
+      REDIS_HOST: localhost
+      REDIS_PORT: 6379
+      DISCORD_CLIENT_ID: 1
+      DISCORD_CLIENT_SECRET: 1
+      DISCORD_INVITE_URL: 1
+      DISCORD_REDIRECT_URL: 1
+      DISCORD_BOT_TOKEN: 1
+      DISCORD_BOT_PERMISSIONS: 1
+      DISCORD_SERVER_ID: 1
+    services:
+      # Label used to access the service container
+      redis:
+        # Docker Hub image
+        image: redis
+        # Set health checks to wait until redis has started
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          # Maps port 6379 on service container to the host
+          - 6379:6379
+    steps:
+      - run: uname -a
+      - uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v2
+        with:
+          node-version: "18.x"
+          registry-url: "https://registry.npmjs.org"
+      - run: |
+          yarn install
+      - run: yarn build
+      # yarn coverage === c8 + yarn test:node
+      - run: yarn coverage
+      - name: test:node with PORT
+        run: yarn test:node
+        env:
+          PORT: 3400
+
+      # Takes 13256 ms first time ran
+      - name: test:node with TEST_PRODUCT_COUNT 25 products, 5000 reports
+        run: yarn test:node
+        env:
+          TEST_PRODUCT_COUNT: 25
+          TEST_REPORT_PER_PRODUCT_COUNT: 200
+          TEST_REPORT_PROCESSING_TIMEOUT_MS: 60000
+      - name: test:node with TEST_PRODUCT_COUNT 50 products, 25000 reports
+        run: yarn test:node
+        env:
+          TEST_PRODUCT_COUNT: 50
+          TEST_REPORT_PER_PRODUCT_COUNT: 500
+          # Remember this is ADDING each time to the same database
+          # When we run the background task in here, it will be running the same reports
+          # Expected time
+          # (13256 / 5000 * 25000) / 1000 = 67 seconds
+          # (13256 ms / 5000 reports * 25000 reports) / 1000 ms = 67 seconds
+          #
+          # Should be over expected 67 seconds + 13 seconds from previous reports
+          #
+          # Actual time first run was 67012 ms total, 67 seconds, for all 30788 or so reports in the db by this point
+          TEST_REPORT_PROCESSING_TIMEOUT_MS: 120000
+#      - name: test:node with TEST_PRODUCT_COUNT 100 products, 100000 reports
+#        run: yarn test:node
+#        env:
+#          TEST_PRODUCT_COUNT: 100
+#          TEST_REPORT_PER_PRODUCT_COUNT: 1000
+#          # 30788 were found in db after the previous test run, so we can use that number
+#          #
+#          # Expected time
+#          #
+#          # (67012 / 30788 * (30788 + 100000)) / 1000 = 284 seconds
+#          # (67012 ms / 30788 reports * (30788 + 100000 reports)) / 1000 ms = 284 seconds
+#          #
+#          # Should be over expected 284 seconds + 67 seconds + 13 seconds from previous reports
+#          #
+#          # Actual time first run was ... timeout :)
+#          TEST_REPORT_PROCESSING_TIMEOUT_MS: 420000
